@@ -35,9 +35,11 @@ class MusicNet(data.Dataset):
     raw_folder = 'raw'
     train_data, train_labels, train_tree = 'train_data', 'train_labels', 'train_tree.pckl'
     test_data, test_labels, test_tree = 'test_data', 'test_labels', 'test_tree.pckl'
+    naruto_data, naruto_labels, naruto_tree = 'naruto_data', 'naruto_labels', 'naruto_tree.pckl'
+
     extracted_folders = [train_data,train_labels,test_data,test_labels]
 
-    def __init__(self, root, train=True, download=False, mmap=True, normalize=True, window=16384, pitch_shift=0, jitter=0., epoch_size=100000):
+    def __init__(self, root, train=True, download=False, mmap=True, normalize=True, window=16384, pitch_shift=0, jitter=0., epoch_size=100000, naruto=False):
         self.mmap = mmap
         self.normalize = normalize
         self.window = window
@@ -45,11 +47,15 @@ class MusicNet(data.Dataset):
         self.jitter = jitter
         self.size = epoch_size
         self.m = 128
-
+        self.naruto = naruto
         self.root = os.path.expanduser(root)
 
         if download:
-            self.download()
+            if naruto:
+                self.download(proceed_only=True)
+            else:
+                self.download()
+
 
         if not self._check_exists():
             raise RuntimeError('Dataset not found.' +
@@ -59,11 +65,16 @@ class MusicNet(data.Dataset):
             self.data_path = os.path.join(self.root, self.train_data)
             labels_path = os.path.join(self.root, self.train_labels, self.train_tree)
         else:
-            self.data_path = os.path.join(self.root, self.test_data)
-            labels_path = os.path.join(self.root, self.test_labels, self.test_tree)
+            if naruto:
+                self.data_path = os.path.join(self.root, self.naruto_data)
+                labels_path = os.path.join(self.root, self.naruto_labels, self.naruto_tree)
+            else:
+                self.data_path = os.path.join(self.root, self.test_data)
+                labels_path = os.path.join(self.root, self.test_labels, self.test_tree)
 
         with open(labels_path, 'rb') as f:
             self.labels = pickle.load(f)
+
 
         self.rec_ids = list(self.labels.keys())
         self.records = dict()
@@ -152,51 +163,61 @@ class MusicNet(data.Dataset):
             os.path.exists(os.path.join(self.root, self.train_labels, self.train_tree)) and \
             os.path.exists(os.path.join(self.root, self.test_labels, self.test_tree))
 
-    def download(self):
+    def download(self, proceed_only=False):
         """Download the MusicNet data if it doesn't exist in ``raw_folder`` already."""
         from six.moves import urllib
         import gzip
 
-        if self._check_exists():
-            return
+        if not proceed_only:
+            if self._check_exists():
+                return
 
-        # download files
-        try:
-            os.makedirs(os.path.join(self.root, self.raw_folder))
-        except OSError as e:
-            if e.errno == errno.EEXIST:
-                pass
-            else:
-                raise
+            # download files
+            try:
+                os.makedirs(os.path.join(self.root, self.raw_folder))
+            except OSError as e:
+                if e.errno == errno.EEXIST:
+                    pass
+                else:
+                    raise
 
-        filename = self.url.rpartition('/')[2]
-        file_path = os.path.join(self.root, self.raw_folder, filename)
-        if not os.path.exists(file_path):
-            print('Downloading ' + self.url)
-            data = urllib.request.urlopen(self.url)
-            with open(file_path, 'wb') as f:
-                f.write(data.read())
-        if not all(map(lambda f: os.path.exists(os.path.join(self.root, f)), self.extracted_folders)):
-            print('Extracting ' + filename)
-            if call(["tar", "-xvvf", file_path]) != 0:
-                raise OSError("Failed tarball extraction")
+            filename = self.url.rpartition('/')[2]
+            file_path = os.path.join(self.root, self.raw_folder, filename)
+            if not os.path.exists(file_path):
+                print('Downloading ' + self.url)
+                data = urllib.request.urlopen(self.url)
+                with open(file_path, 'wb') as f:
+                    f.write(data.read())
+            if not all(map(lambda f: os.path.exists(os.path.join(self.root, f)), self.extracted_folders)):
+                print('Extracting ' + filename)
+                if call(["tar", "-xvvf", file_path]) != 0:
+                    raise OSError("Failed tarball extraction")
 
+        else:
         # process and save as torch files
-        print('Processing...')
+            print('Processing...')
 
-        self.process_data(self.test_data)
+            self.process_data(self.test_data)
 
-        trees = self.process_labels(self.test_labels)
-        with open(os.path.join(self.root, self.test_labels, self.test_tree), 'wb') as f:
-            pickle.dump(trees, f)
+            trees = self.process_labels(self.test_labels)
+            with open(os.path.join(self.root, self.test_labels, self.test_tree), 'wb') as f:
+                pickle.dump(trees, f)
 
-        self.process_data(self.train_data)
+            self.process_data(self.train_data)
 
-        trees = self.process_labels(self.train_labels)
-        with open(os.path.join(self.root, self.train_labels, self.train_tree), 'wb') as f:
-            pickle.dump(trees, f)
+            trees = self.process_labels(self.train_labels)
+            with open(os.path.join(self.root, self.train_labels, self.train_tree), 'wb') as f:
+                pickle.dump(trees, f)
+            print('huli')
+            if self.naruto:
+                print('puli')
+                self.process_data(self.naruto_data)
+                trees = self.process_labels(self.naruto_labels)
+                with open(os.path.join(self.root, self.naruto_labels, self.naruto_tree), 'wb') as f:
+                    pickle.dump(trees, f)
 
-        print('Download Complete')
+
+            print('Download Complete')
 
     # write out wavfiles as arrays for direct mmap access
     def process_data(self, path):
